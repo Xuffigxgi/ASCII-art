@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>กล้อง ASCII</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #ffffff;
+    --ink: #000000;
+    --muted: #666666;
+    --line: #d9d9d9;
+    --accent: #1d3fd6;
+    --panel: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Noto Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.5;
+    transition: background .2s, color .2s;
+  }
+  body.dark { --paper: #000; --ink: #fff; --muted: #9a9a9a; --line: #333; --panel: #141414; --accent: #7f9bff; }
+
+  header { padding: 20px 20px 0; max-width: 1100px; margin: 0 auto; }
+  h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: .9rem; }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 16px 20px 40px; display: grid; gap: 20px; }
+
+  #stage {
+    width: 100%;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 260px;
+  }
+  #art {
+    margin: 0;
+    white-space: pre;
+    font-family: 'DejaVu Sans Mono', 'Consolas', 'Menlo', 'Courier New', monospace;
+    line-height: 1;
+    color: var(--ink);
+    font-size: 12px;
+    text-align: left;
+  }
+  #art.empty { font-family: "Noto Sans Thai", system-ui, sans-serif; color: var(--muted); font-size: 1rem; white-space: normal; text-align: center; }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  button {
+    font: inherit; font-size: .95rem;
+    padding: 9px 16px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--ink); background: transparent; color: var(--ink);
+  }
+  button:hover { background: var(--ink); color: var(--paper); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { filter: brightness(1.1); background: var(--accent); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  .sliders { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  label.slider { display: grid; gap: 4px; font-size: .9rem; }
+  label.slider span { display: flex; justify-content: space-between; }
+  label.slider output { color: var(--muted); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+
+  .toggles { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: .9rem; }
+  .toggles label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+
+  #status { min-height: 1.4em; font-size: .9rem; color: var(--muted); }
+  #status.err { color: #c62828; }
+  body.dark #status.err { color: #ff8a80; }
+
+  video, canvas.hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>กล้อง ASCII</h1>
+  <p>เปิดกล้องแล้วแปลงภาพสดเป็นตัวอักษรแบบ ASCII art</p>
+</header>
+
+<main>
+  <div id="stage">
+    <pre id="art" class="empty">กด “เปิดกล้อง” เพื่อเริ่ม</pre>
+  </div>
+
+  <section class="panel" aria-label="ตัวควบคุม">
+    <div class="row">
+      <button id="btnStart" class="primary">เปิดกล้อง</button>
+      <button id="btnFlip" disabled>สลับกล้องหน้า/หลัง</button>
+      <button id="btnSave" disabled>บันทึกเป็นรูป PNG</button>
+      <button id="btnCopy" disabled>คัดลอกข้อความ</button>
+    </div>
+
+    <div class="sliders">
+      <label class="slider">
+        <span>ความละเอียด (จำนวนตัวอักษรต่อแถว) <output id="oCols">110</output></span>
+        <input id="cols" type="range" min="40" max="220" step="2" value="110">
+      </label>
+      <label class="slider">
+        <span>ความเข้ม/คอนทราสต์ <output id="oCon">1.7</output></span>
+        <input id="con" type="range" min="0.5" max="4" step="0.1" value="1.7">
+      </label>
+      <label class="slider">
+        <span>ความสว่าง <output id="oBri">0</output></span>
+        <input id="bri" type="range" min="-0.5" max="0.5" step="0.02" value="0">
+      </label>
+    </div>
+
+    <div class="toggles">
+      <label><input id="mirror" type="checkbox" checked> กลับซ้าย-ขวา (เหมือนกระจก)</label>
+      <label><input id="invert" type="checkbox"> กลับความเข้ม (สว่าง ↔ มืด)</label>
+      <label><input id="dark" type="checkbox"> พื้นหลังดำ ตัวอักษรขาว</label>
+    </div>
+
+    <div id="status" role="status" aria-live="polite"></div>
+  </section>
+</main>
+
+<video id="video" playsinline muted></video>
+<canvas id="work" class="hidden"></canvas>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const video = $('video'), art = $('art'), stage = $('stage'), status = $('status');
+  const work = $('work'), ctx = work.getContext('2d', { willReadFrequently: true });
+
+  // เรียงจาก "เข้ม/หนาแน่น" → "จาง/โปร่ง" ให้ใกล้เคียงรูปตัวอย่าง (# X e 2 7 1 / : .)
+  const RAMP = "#@8&XeQ2x7?1/!;:,. ";
+  const FONT = "'DejaVu Sans Mono','Consolas','Menlo','Courier New',monospace";
+
+  let stream = null, facing = 'user', raf = 0, lastT = 0;
+  let lastText = '', lastCols = 0;
+
+  // วัดอัตราส่วนความกว้างตัวอักษรต่อความสูงบรรทัด เพื่อไม่ให้ภาพเพี้ยน
+  const R = (() => {
+    const s = document.createElement('span');
+    s.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:100px ${FONT}`;
+    s.textContent = 'M'.repeat(50);
+    document.body.appendChild(s);
+    const w = s.getBoundingClientRect().width / 50 / 100;
+    s.remove();
+    return w || 0.6;
+  })();
+
+  function setStatus(msg, isErr = false) {
+    status.textContent = msg;
+    status.className = isErr ? 'err' : '';
+  }
+
+  function bindOutputs() {
+    [['cols', 'oCols'], ['con', 'oCon'], ['bri', 'oBri']].forEach(([i, o]) => {
+      const el = $(i), out = $(o);
+      const upd = () => out.textContent = el.value;
+      el.addEventListener('input', upd); upd();
+    });
+    $('dark').addEventListener('change', e => document.body.classList.toggle('dark', e.target.checked));
+  }
+
+  async function startCamera() {
+    stopCamera(false);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('เบราว์เซอร์นี้ไม่รองรับกล้อง หรือต้องเปิดหน้านี้ผ่าน https หรือ localhost', true);
+      return;
+    }
+    try {
+      setStatus('กำลังขออนุญาตใช้กล้อง…');
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+      $('mirror').checked = (facing === 'user');
+      $('btnStart').textContent = 'ปิดกล้อง';
+      ['btnFlip', 'btnSave', 'btnCopy'].forEach(id => $(id).disabled = false);
+      art.classList.remove('empty');
+      setStatus('กำลังทำงาน — ลองปรับความเข้มถ้าภาพจางหรือดำเกินไป');
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(frame);
+    } catch (err) {
+      const map = {
+        NotAllowedError: 'ยังไม่ได้อนุญาตให้ใช้กล้อง — กดอนุญาตที่แถบที่อยู่เว็บแล้วลองใหม่',
+        NotFoundError: 'ไม่พบกล้องในอุปกรณ์นี้',
+        NotReadableError: 'กล้องถูกโปรแกรมอื่นใช้งานอยู่ ปิดโปรแกรมนั้นก่อนแล้วลองใหม่',
+        OverconstrainedError: 'กล้องนี้ไม่รองรับการตั้งค่าที่ขอ ลองสลับกล้อง'
+      };
+      setStatus(map[err.name] || ('เปิดกล้องไม่สำเร็จ: ' + err.message), true);
+    }
+  }
+
+  function stopCamera(resetUI = true) {
+    cancelAnimationFrame(raf);
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    video.srcObject = null;
+    if (resetUI) {
+      $('btnStart').textContent = 'เปิดกล้อง';
+      ['btnFlip', 'btnSave', 'btnCopy'].forEach(id => $(id).disabled = true);
+      art.className = 'empty';
+      art.style.fontSize = '';
+      art.textContent = 'กด “เปิดกล้อง” เพื่อเริ่ม';
+      lastText = '';
+      setStatus('');
+    }
+  }
+
+  function frame(t) {
+    raf = requestAnimationFrame(frame);
+    if (t - lastT < 50) return;          // ~20 เฟรม/วินาที
+    lastT = t;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return;
+
+    const cols = +$('cols').value;
+    const rows = Math.max(1, Math.round(cols * (vh / vw) * R));
+    if (work.width !== cols || work.height !== rows) { work.width = cols; work.height = rows; }
+
+    ctx.save();
+    if ($('mirror').checked) { ctx.translate(cols, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, 0, 0, cols, rows);
+    ctx.restore();
+
+    const d = ctx.getImageData(0, 0, cols, rows).data;
+    const con = +$('con').value, bri = +$('bri').value;
+    const flip = $('invert').checked !== $('dark').checked;  // พื้นดำ → ส่วนสว่างใช้ตัวอักษรหนาแน่น
+    const n = RAMP.length - 1;
+
+    let text = '';
+    for (let y = 0; y < rows; y++) {
+      let line = '';
+      for (let x = 0; x < cols; x++) {
+        const i = (y * cols + x) * 4;
+        let v = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+        v = (v - 0.5) * con + 0.5 + bri;
+        v = v < 0 ? 0 : v > 1 ? 1 : v;
+        if (flip) v = 1 - v;
+        line += RAMP[Math.round(v * n)];
+      }
+      text += line + (y < rows - 1 ? '\n' : '');
+    }
+    lastText = text; lastCols = cols;
+
+    // ปรับขนาดฟอนต์ให้พอดีกรอบ
+    const W = stage.clientWidth, H = window.innerHeight * 0.72;
+    const fs = Math.max(3, Math.min(W / (cols * R), H / rows));
+    art.style.fontSize = fs.toFixed(2) + 'px';
+    art.textContent = text;
+  }
+
+  function savePng() {
+    if (!lastText) return;
+    const lines = lastText.split('\n');
+    const fs = 16, pad = 24;
+    const c = document.createElement('canvas');
+    c.width = Math.ceil(lastCols * fs * R) + pad * 2;
+    c.height = lines.length * fs + pad * 2;
+    const g = c.getContext('2d');
+    const cs = getComputedStyle(document.body);
+    g.fillStyle = cs.getPropertyValue('--paper').trim() || '#fff';
+    g.fillRect(0, 0, c.width, c.height);
+    g.fillStyle = cs.getPropertyValue('--ink').trim() || '#000';
+    g.font = `${fs}px ${FONT}`;
+    g.textBaseline = 'top';
+    lines.forEach((ln, i) => g.fillText(ln, pad, pad + i * fs));
+    const a = document.createElement('a');
+    a.href = c.toDataURL('image/png');
+    a.download = 'ascii-camera-' + Date.now() + '.png';
+    a.click();
+  }
+
+  async function copyText() {
+    if (!lastText) return;
+    try {
+      await navigator.clipboard.writeText(lastText);
+      setStatus('คัดลอกข้อความแล้ว');
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = lastText; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); setStatus('คัดลอกข้อความแล้ว'); }
+      catch { setStatus('คัดลอกไม่สำเร็จ', true); }
+      ta.remove();
+    }
+  }
+
+  $('btnStart').addEventListener('click', () => stream ? stopCamera() : startCamera());
+  $('btnFlip').addEventListener('click', () => { facing = facing === 'user' ? 'environment' : 'user'; startCamera(); });
+  $('btnSave').addEventListener('click', savePng);
+  $('btnCopy').addEventListener('click', copyText);
+  bindOutputs();
+})();
+</script>
+</body>
+</html>
