@@ -479,4 +479,44 @@
   function saveTxt() {
     if (!lastText) return;
     const blob = new Blob([lastText], { type: 'text/plain;charset=utf-8' });
-    const a = document.crea
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ascii-' + Date.now() + '.txt';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  async function copyText() {
+    if (!lastText) return;
+    try { await navigator.clipboard.writeText(lastText); setStatus('คัดลอกข้อความแล้ว'); }
+    catch {
+      const ta = document.createElement('textarea');
+      ta.value = lastText; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); setStatus('คัดลอกข้อความแล้ว'); }
+      catch { setStatus('คัดลอกไม่สำเร็จ', true); }
+      ta.remove();
+    }
+  }
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) stage.requestFullscreen?.().catch(() => setStatus('เบราว์เซอร์นี้ไม่รองรับการดูเต็มจอ', true));
+    else document.exitFullscreen?.();
+  }
+
+  $('btnSave').addEventListener('click', savePng);
+  $('btnSaveTxt').addEventListener('click', saveTxt);
+  $('btnCopy').addEventListener('click', copyText);
+  $('btnFullscreen').addEventListener('click', toggleFullscreen);
+
+  // spacebar: play/pause current video source
+  document.addEventListener('keydown', e => {
+    if (e.code !== 'Space') return;
+    const tag = document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'BUTTON') return;
+    if (source === 'video') { e.preventDefault(); $('btnPlay').click(); }
+    else if (source === 'camera') { e.preventDefault(); $('btnSnap').click(); }
+  });
+
+  bindOutputs();
+})();
+</script>
+</body>
+</html>
