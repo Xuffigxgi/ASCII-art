@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>อัปโหลด ASCII</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #ffffff;
+    --ink: #000000;
+    --muted: #666666;
+    --line: #d9d9d9;
+    --accent: #1d3fd6;
+    --panel: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Noto Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.5;
+    transition: background .2s, color .2s;
+  }
+  body.dark { --paper: #000; --ink: #fff; --muted: #9a9a9a; --line: #333; --panel: #141414; --accent: #7f9bff; }
+
+  header { padding: 20px 20px 0; max-width: 1100px; margin: 0 auto; }
+  h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: .9rem; }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 16px 20px 40px; display: grid; gap: 20px; }
+
+  #drop {
+    border: 2px dashed var(--line);
+    border-radius: 10px;
+    padding: 28px 16px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    display: grid; gap: 10px; justify-items: center;
+  }
+  #drop.over { border-color: var(--accent); color: var(--accent); }
+  #drop input { display: none; }
+  #drop button { pointer-events: none; }
+
+  #stage {
+    width: 100%;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 260px;
+  }
+  #art {
+    margin: 0;
+    white-space: pre;
+    font-family: 'DejaVu Sans Mono', 'Consolas', 'Menlo', 'Courier New', monospace;
+    line-height: 1;
+    color: var(--ink);
+    font-size: 12px;
+    text-align: left;
+  }
+  #art.empty { font-family: "Noto Sans Thai", system-ui, sans-serif; color: var(--muted); font-size: 1rem; white-space: normal; text-align: center; }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button {
+    font: inherit; font-size: .95rem;
+    padding: 9px 16px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--ink); background: transparent; color: var(--ink);
+  }
+  button:hover { background: var(--ink); color: var(--paper); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { filter: brightness(1.1); background: var(--accent); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  .sliders { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  label.slider { display: grid; gap: 4px; font-size: .9rem; }
+  label.slider span { display: flex; justify-content: space-between; }
+  label.slider output { color: var(--muted); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+
+  .toggles { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: .9rem; }
+  .toggles label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+
+  #status { min-height: 1.4em; font-size: .9rem; color: var(--muted); }
+  #status.err { color: #c62828; }
+  body.dark #status.err { color: #ff8a80; }
+
+  #seekWrap { display: none; }
+  #seekWrap.show { display: grid; }
+
+  img, video, canvas.hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>อัปโหลด ASCII</h1>
+  <p>อัปโหลดรูปภาพหรือวิดีโอ แล้วแปลงเป็นตัวอักษรแบบ ASCII art</p>
+</header>
+
+<main>
+  <div id="drop" tabindex="0" role="button" aria-label="เลือกไฟล์รูปภาพหรือวิดีโอ">
+    <span id="dropLabel">ลากไฟล์มาวาง หรือกดเพื่อเลือกรูปภาพ/วิดีโอ</span>
+    <button type="button">เลือกไฟล์</button>
+    <input id="file" type="file" accept="image/*,video/*">
+  </div>
+
+  <div id="stage">
+    <pre id="art" class="empty">ยังไม่ได้เลือกไฟล์</pre>
+  </div>
+
+  <section class="panel" aria-label="ตัวควบคุม">
+    <div class="row">
+      <button id="btnPlay" disabled>เล่น/หยุดชั่วคราว</button>
+      <button id="btnSave" disabled>บันทึกเป็นรูป PNG</button>
+      <button id="btnCopy" disabled>คัดลอกข้อความ</button>
+    </div>
+
+    <div id="seekWrap" class="sliders">
+      <label class="slider">
+        <span>ตำแหน่งวิดีโอ <output id="oSeek">0:00</output></span>
+        <input id="seek" type="range" min="0" max="100" step="0.1" value="0">
+      </label>
+    </div>
+
+    <div class="sliders">
+      <label class="slider">
+        <span>ความละเอียด (จำนวนตัวอักษรต่อแถว) <output id="oCols">110</output></span>
+        <input id="cols" type="range" min="40" max="220" step="2" value="110">
+      </label>
+      <label class="slider">
+        <span>ความเข้ม/คอนทราสต์ <output id="oCon">1.7</output></span>
+        <input id="con" type="range" min="0.5" max="4" step="0.1" value="1.7">
+      </label>
+      <label class="slider">
+        <span>ความสว่าง <output id="oBri">0</output></span>
+        <input id="bri" type="range" min="-0.5" max="0.5" step="0.02" value="0">
+      </label>
+    </div>
+
+    <div class="toggles">
+      <label><input id="mirror" type="checkbox"> กลับซ้าย-ขวา</label>
+      <label><input id="invert" type="checkbox"> กลับความเข้ม (สว่าง ↔ มืด)</label>
+      <label><input id="dark" type="checkbox"> พื้นหลังดำ ตัวอักษรขาว</label>
+    </div>
+
+    <div id="status" role="status" aria-live="polite"></div>
+  </section>
+</main>
+
+<img id="img" alt="">
+<video id="video" playsinline muted></video>
+<canvas id="work" class="hidden"></canvas>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const drop = $('drop'), fileInput = $('file'), dropLabel = $('dropLabel');
+  const img = $('img'), video = $('video'), art = $('art'), stage = $('stage'), status = $('status');
+  const work = $('work'), ctx = work.getContext('2d', { willReadFrequently: true });
+  const seekWrap = $('seekWrap'), seek = $('seek'), oSeek = $('oSeek');
+
+  const RAMP = "#@8&XeQ2x7?1/!;:,. ";
+  const FONT = "'DejaVu Sans Mono','Consolas','Menlo','Courier New',monospace";
+
+  let mode = null;       // 'image' | 'video'
+  let raf = 0, lastT = 0;
+  let lastText = '', lastCols = 0;
+  let seeking = false;
+
+  const R = (() => {
+    const s = document.createElement('span');
+    s.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:100px ${FONT}`;
+    s.textContent = 'M'.repeat(50);
+    document.body.appendChild(s);
+    const w = s.getBoundingClientRect().width / 50 / 100;
+    s.remove();
+    return w || 0.6;
+  })();
+
+  function setStatus(msg, isErr = false) {
+    status.textContent = msg;
+    status.className = isErr ? 'err' : '';
+  }
+
+  function fmtTime(s) {
+    s = Math.max(0, s | 0);
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  function bindOutputs() {
+    [['cols', 'oCols'], ['con', 'oCon'], ['bri', 'oBri']].forEach(([i, o]) => {
+      const el = $(i), out = $(o);
+      const upd = () => out.textContent = el.value;
+      el.addEventListener('input', upd); upd();
+    });
+    $('dark').addEventListener('change', e => document.body.classList.toggle('dark', e.target.checked));
+    ['mirror', 'invert'].forEach(id => $(id).addEventListener('input', () => {
+      if (mode === 'image') renderOnce();
+    }));
+  }
+
+  function resetOutputs() {
+    cancelAnimationFrame(raf);
+    art.className = 'empty';
+    art.style.fontSize = '';
+    art.textContent = 'กำลังโหลดไฟล์…';
+    lastText = '';
+    seekWrap.classList.remove('show');
+    ['btnPlay', 'btnSave', 'btnCopy'].forEach(id => $(id).disabled = true);
+  }
+
+  function handleFile(f) {
+    if (!f) return;
+    resetOutputs();
+    setStatus('');
+    const url = URL.createObjectURL(f);
+    if (f.type.startsWith('image/')) {
+      mode = 'image';
+      video.pause(); video.removeAttribute('src'); video.load();
+      img.onload = () => {
+        dropLabel.textContent = f.name;
+        art.classList.remove('empty');
+        ['btnSave', 'btnCopy'].forEach(id => $(id).disabled = false);
+        renderOnce();
+      };
+      img.onerror = () => setStatus('เปิดไฟล์รูปภาพไม่สำเร็จ', true);
+      img.src = url;
+    } else if (f.type.startsWith('video/')) {
+      mode = 'video';
+      img.removeAttribute('src');
+      video.src = url;
+      video.onloadedmetadata = () => {
+        dropLabel.textContent = f.name;
+        art.classList.remove('empty');
+        ['btnPlay', 'btnSave', 'btnCopy'].forEach(id => $(id).disabled = false);
+        seekWrap.classList.add('show');
+        seek.max = video.duration || 0;
+        video.play().catch(() => {});
+        $('btnPlay').textContent = 'หยุดชั่วคราว';
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(frame);
+      };
+      video.onerror = () => setStatus('เปิดไฟล์วิดีโอไม่สำเร็จ (อาจเป็นชนิดไฟล์ที่เบราว์เซอร์นี้ไม่รองรับ)', true);
+      video.ontimeupdate = () => { if (!seeking) { seek.value = video.currentTime; oSeek.textContent = fmtTime(video.currentTime); } };
+      video.onended = () => $('btnPlay').textContent = 'เล่น';
+    } else {
+      setStatus('รองรับเฉพาะไฟล์รูปภาพหรือวิดีโอ', true);
+    }
+  }
+
+  function toAscii(sourceEl, sw, sh) {
+    const cols = +$('cols').value;
+    const rows = Math.max(1, Math.round(cols * (sh / sw) * R));
+    if (work.width !== cols || work.height !== rows) { work.width = cols; work.height = rows; }
+
+    ctx.save();
+    if ($('mirror').checked) { ctx.translate(cols, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(sourceEl, 0, 0, cols, rows);
+    ctx.restore();
+
+    const d = ctx.getImageData(0, 0, cols, rows).data;
+    const con = +$('con').value, bri = +$('bri').value;
+    const flip = $('invert').checked !== $('dark').checked;
+    const n = RAMP.length - 1;
+
+    let text = '';
+    for (let y = 0; y < rows; y++) {
+      let line = '';
+      for (let x = 0; x < cols; x++) {
+        const i = (y * cols + x) * 4;
+        let v = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+        v = (v - 0.5) * con + 0.5 + bri;
+        v = v < 0 ? 0 : v > 1 ? 1 : v;
+        if (flip) v = 1 - v;
+        line += RAMP[Math.round(v * n)];
+      }
+      text += line + (y < rows - 1 ? '\n' : '');
+    }
+    lastText = text; lastCols = cols;
+
+    const W = stage.clientWidth, H = window.innerHeight * 0.72;
+    const fs = Math.max(3, Math.min(W / (cols * R), H / rows));
+    art.style.fontSize = fs.toFixed(2) + 'px';
+    art.textContent = text;
+  }
+
+  function renderOnce() {
+    if (mode === 'image' && img.naturalWidth) toAscii(img, img.naturalWidth, img.naturalHeight);
+  }
+
+  function frame(t) {
+    raf = requestAnimationFrame(frame);
+    if (mode !== 'video') return;
+    if (t - lastT < 50) return;
+    lastT = t;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return;
+    toAscii(video, vw, vh);
+  }
+
+  function savePng() {
+    if (!lastText) return;
+    const lines = lastText.split('\n');
+    const fs = 16, pad = 24;
+    const c = document.createElement('canvas');
+    c.width = Math.ceil(lastCols * fs * R) + pad * 2;
+    c.height = lines.length * fs + pad * 2;
+    const g = c.getContext('2d');
+    const cs = getComputedStyle(document.body);
+    g.fillStyle = cs.getPropertyValue('--paper').trim() || '#fff';
+    g.fillRect(0, 0, c.width, c.height);
+    g.fillStyle = cs.getPropertyValue('--ink').trim() || '#000';
+    g.font = `${fs}px ${FONT}`;
+    g.textBaseline = 'top';
+    lines.forEach((ln, i) => g.fillText(ln, pad, pad + i * fs));
+    const a = document.createElement('a');
+    a.href = c.toDataURL('image/png');
+    a.download = 'ascii-' + Date.now() + '.png';
+    a.click();
+  }
+
+  async function copyText() {
+    if (!lastText) return;
+    try {
+      await navigator.clipboard.writeText(lastText);
+      setStatus('คัดลอกข้อความแล้ว');
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = lastText; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); setStatus('คัดลอกข้อความแล้ว'); }
+      catch { setStatus('คัดลอกไม่สำเร็จ', true); }
+      ta.remove();
+    }
+  }
+
+  // -- events --
+  drop.addEventListener('click', () => fileInput.click());
+  drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+  fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+  ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]));
+
+  $('btnPlay').addEventListener('click', () => {
+    if (mode !== 'video') return;
+    if (video.paused) { video.play(); $('btnPlay').textContent = 'หยุดชั่วคราว'; }
+    else { video.pause(); $('btnPlay').textContent = 'เล่น'; }
+  });
+  seek.addEventListener('input', () => { seeking = true; oSeek.textContent = fmtTime(+seek.value); });
+  seek.addEventListener('change', () => { video.currentTime = +seek.value; seeking = false; });
+
+  $('btnSave').addEventListener('click', savePng);
+  $('btnCopy').addEventListener('click', copyText);
+  ['cols', 'con', 'bri'].forEach(id => $(id).addEventListener('input', () => { if (mode === 'image') renderOnce(); }));
+
+  bindOutputs();
+})();
+</script>
+</body>
+</html>
+
