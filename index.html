@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>กล้อง ASCII</title>
+<title>ASCII Cam & อัปโหลด</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -27,28 +27,42 @@
   body.dark { --paper: #000; --ink: #fff; --muted: #9a9a9a; --line: #333; --panel: #141414; --accent: #7f9bff; }
 
   header { padding: 20px 20px 0; max-width: 1100px; margin: 0 auto; }
-  header .row { flex-wrap: wrap; gap: 12px; }
   h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
   header p { margin: 2px 0 0; color: var(--muted); font-size: .9rem; }
-  .navlink {
-    flex: none;
-    font-size: .9rem;
-    padding: 9px 16px;
-    border-radius: 8px;
-    border: 1px solid var(--ink);
-    color: var(--ink);
-    text-decoration: none;
-    white-space: nowrap;
-  }
-  .navlink:hover { background: var(--ink); color: var(--paper); }
 
   main { max-width: 1100px; margin: 0 auto; padding: 16px 20px 40px; display: grid; gap: 20px; }
+
+  .tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--line); }
+  .tabs button {
+    border: none; background: none; padding: 10px 4px; margin-bottom: -1px;
+    font: inherit; font-size: .95rem; color: var(--muted); cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .tabs button.active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+
+  #drop {
+    border: 2px dashed var(--line);
+    border-radius: 10px;
+    padding: 28px 16px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    display: grid; gap: 10px; justify-items: center;
+  }
+  #drop.over { border-color: var(--accent); color: var(--accent); }
+  #drop input { display: none; }
+  #drop button { pointer-events: none; }
+
+  #cameraControls, #uploadControls { display: none; }
+  #cameraControls.show, #uploadControls.show { display: grid; gap: 10px; }
 
   #stage {
     width: 100%;
     display: flex; justify-content: center; align-items: center;
     min-height: 260px;
+    position: relative;
   }
+  #stage:fullscreen { background: var(--paper); }
   #art {
     margin: 0;
     white-space: pre;
@@ -59,14 +73,16 @@
     text-align: left;
   }
   #art.empty { font-family: "Noto Sans Thai", system-ui, sans-serif; color: var(--muted); font-size: 1rem; white-space: normal; text-align: center; }
+  #art span { white-space: pre; }
 
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 16px; }
-  .row { display: flex; flex-wrap: wrap; gap: 8px; }
-  button {
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button, select {
     font: inherit; font-size: .95rem;
-    padding: 9px 16px; border-radius: 8px; cursor: pointer;
+    padding: 9px 14px; border-radius: 8px; cursor: pointer;
     border: 1px solid var(--ink); background: transparent; color: var(--ink);
   }
+  select { background: var(--paper); }
   button:hover { background: var(--ink); color: var(--paper); }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.primary:hover { filter: brightness(1.1); background: var(--accent); }
@@ -87,36 +103,77 @@
   #status.err { color: #c62828; }
   body.dark #status.err { color: #ff8a80; }
 
-  video, canvas.hidden { display: none; }
+  #seekWrap { display: none; }
+  #seekWrap.show { display: grid; }
+
+  .hint { font-size: .8rem; color: var(--muted); }
+
+  video, img.srcimg, canvas.hidden { display: none; }
 </style>
 </head>
 <body>
 <header>
-  <div class="row" style="justify-content: space-between; align-items: flex-start;">
-    <div>
-      <h1>กล้อง ASCII</h1>
-      <p>เปิดกล้องแล้วแปลงภาพสดเป็นตัวอักษรแบบ ASCII art</p>
-    </div>
-    <a class="navlink" href="https://xuffigxgi.github.io/ASCII-camera/upload.html">ไปหน้าอัปโหลดรูป/วิดีโอ</a>
-  </div>
+  <h1>ASCII Cam & อัปโหลด</h1>
+  <p>แปลงภาพจากกล้องสด หรือไฟล์รูป/วิดีโอที่อัปโหลด ให้เป็น ASCII art</p>
 </header>
 
 <main>
-  <div id="stage">
-    <pre id="art" class="empty">กด "เปิดกล้อง" เพื่อเริ่ม</pre>
-  </div>
+  <nav class="tabs" role="tablist" aria-label="เลือกแหล่งที่มา">
+    <button id="tabCamera" class="active" role="tab" aria-selected="true">กล้อง</button>
+    <button id="tabUpload" role="tab" aria-selected="false">อัปโหลดไฟล์</button>
+  </nav>
 
-  <section class="panel" aria-label="ตัวควบคุม">
+  <div id="cameraControls" class="show">
     <div class="row">
       <button id="btnStart" class="primary">เปิดกล้อง</button>
-      <button id="btnFlip" disabled>สลับกล้องหน้า/หลัง</button>
+      <button id="btnFlipCam" disabled>สลับกล้องหน้า/หลัง</button>
+      <button id="btnSnap" disabled>ถ่ายภาพนิ่ง</button>
+    </div>
+  </div>
+
+  <div id="uploadControls">
+    <div id="drop" tabindex="0" role="button" aria-label="เลือกไฟล์รูปภาพหรือวิดีโอ">
+      <span id="dropLabel">ลากไฟล์มาวาง หรือกดเพื่อเลือกรูปภาพ/วิดีโอ</span>
+      <button type="button">เลือกไฟล์</button>
+      <input id="file" type="file" accept="image/*,video/*">
+    </div>
+    <div class="row">
+      <button id="btnPlay" disabled>เล่น/หยุดชั่วคราว</button>
+    </div>
+    <div id="seekWrap" class="sliders">
+      <label class="slider">
+        <span>ตำแหน่งวิดีโอ <output id="oSeek">0:00</output></span>
+        <input id="seek" type="range" min="0" max="100" step="0.1" value="0">
+      </label>
+    </div>
+  </div>
+
+  <div id="stage">
+    <pre id="art" class="empty">เลือกแหล่งที่มาด้านบนเพื่อเริ่ม</pre>
+  </div>
+
+  <section class="panel" aria-label="ตัวควบคุมทั่วไป">
+    <div class="row">
+      <button id="btnFullscreen" disabled>ดูเต็มจอ</button>
       <button id="btnSave" disabled>บันทึกเป็นรูป PNG</button>
+      <button id="btnSaveTxt" disabled>บันทึกเป็นข้อความ .txt</button>
       <button id="btnCopy" disabled>คัดลอกข้อความ</button>
+    </div>
+
+    <div class="row">
+      <label class="slider" style="min-width:200px">
+        <span>ชุดตัวอักษร</span>
+        <select id="charset">
+          <option value="classic">คลาสสิก (# @ 8 &amp; X e …)</option>
+          <option value="blocks">บล็อกทึบ (█ ▓ ▒ ░)</option>
+          <option value="dots">จุด (● ◉ ◍ ·)</option>
+        </select>
+      </label>
     </div>
 
     <div class="sliders">
       <label class="slider">
-        <span>ความละเอียด (จำนวนตัวอักษรต่อแถว) <output id="oCols">110</output></span>
+        <span>ความละเอียด (ตัวอักษรต่อแถว) <output id="oCols">110</output></span>
         <input id="cols" type="range" min="40" max="220" step="2" value="110">
       </label>
       <label class="slider">
@@ -133,29 +190,40 @@
       <label><input id="mirror" type="checkbox" checked> กลับซ้าย-ขวา (เหมือนกระจก)</label>
       <label><input id="invert" type="checkbox"> กลับความเข้ม (สว่าง ↔ มืด)</label>
       <label><input id="dark" type="checkbox"> พื้นหลังดำ ตัวอักษรขาว</label>
+      <label><input id="colorMode" type="checkbox"> สีตามภาพจริง</label>
     </div>
+    <p class="hint">โหมด “สีตามภาพจริง” ใช้การประมวลผลมากขึ้น หากกระตุก ให้ลดความละเอียดลง</p>
 
     <div id="status" role="status" aria-live="polite"></div>
   </section>
 </main>
 
+<img id="img" class="srcimg" alt="">
 <video id="video" playsinline muted></video>
 <canvas id="work" class="hidden"></canvas>
 
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const video = $('video'), art = $('art'), stage = $('stage'), status = $('status');
+  const tabCamera = $('tabCamera'), tabUpload = $('tabUpload');
+  const cameraControls = $('cameraControls'), uploadControls = $('uploadControls');
+  const drop = $('drop'), fileInput = $('file'), dropLabel = $('dropLabel');
+  const img = $('img'), video = $('video'), art = $('art'), stage = $('stage'), status = $('status');
   const work = $('work'), ctx = work.getContext('2d', { willReadFrequently: true });
+  const seekWrap = $('seekWrap'), seek = $('seek'), oSeek = $('oSeek');
 
-  // เรียงจาก "เข้ม/หนาแน่น" → "จาง/โปร่ง" ให้ใกล้เคียงรูปตัวอย่าง (# X e 2 7 1 / : .)
-  const RAMP = "#@8&XeQ2x7?1/!;:,. ";
+  const RAMPS = {
+    classic: "#@8&XeQ2x7?1/!;:,. ",
+    blocks: "█▓▒░ ",
+    dots: "●◉◍◌·. "
+  };
   const FONT = "'DejaVu Sans Mono','Consolas','Menlo','Courier New',monospace";
 
-  let stream = null, facing = 'user', raf = 0, lastT = 0;
-  let lastText = '', lastCols = 0;
+  let camStream = null, camFacing = 'user';
+  let source = 'none';     // 'camera' | 'video' | 'image' | 'none'
+  let raf = 0, lastT = 0;
+  let lastText = '', lastCols = 0, frozen = false;
 
-  // วัดอัตราส่วนความกว้างตัวอักษรต่อความสูงบรรทัด เพื่อไม่ให้ภาพเพี้ยน
   const R = (() => {
     const s = document.createElement('span');
     s.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:100px ${FONT}`;
@@ -166,10 +234,8 @@
     return w || 0.6;
   })();
 
-  function setStatus(msg, isErr = false) {
-    status.textContent = msg;
-    status.className = isErr ? 'err' : '';
-  }
+  function setStatus(msg, isErr = false) { status.textContent = msg; status.className = isErr ? 'err' : ''; }
+  function fmtTime(s) { s = Math.max(0, s | 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 
   function bindOutputs() {
     [['cols', 'oCols'], ['con', 'oCon'], ['bri', 'oBri']].forEach(([i, o]) => {
@@ -178,8 +244,38 @@
       el.addEventListener('input', upd); upd();
     });
     $('dark').addEventListener('change', e => document.body.classList.toggle('dark', e.target.checked));
+    ['mirror', 'invert', 'colorMode', 'cols', 'con', 'bri', 'charset'].forEach(id =>
+      $(id).addEventListener('input', () => { if (source === 'image') renderStatic(); })
+    );
   }
 
+  // ---------- tabs ----------
+  function switchTab(target) {
+    stopCamera(false);
+    if (target === 'camera') {
+      tabCamera.classList.add('active'); tabCamera.setAttribute('aria-selected', 'true');
+      tabUpload.classList.remove('active'); tabUpload.setAttribute('aria-selected', 'false');
+      cameraControls.classList.add('show'); uploadControls.classList.remove('show');
+    } else {
+      tabUpload.classList.add('active'); tabUpload.setAttribute('aria-selected', 'true');
+      tabCamera.classList.remove('active'); tabCamera.setAttribute('aria-selected', 'false');
+      uploadControls.classList.add('show'); cameraControls.classList.remove('show');
+    }
+    resetStage();
+  }
+  tabCamera.addEventListener('click', () => switchTab('camera'));
+  tabUpload.addEventListener('click', () => switchTab('upload'));
+
+  function resetStage() {
+    cancelAnimationFrame(raf);
+    source = 'none'; frozen = false; lastText = '';
+    art.className = 'empty'; art.style.fontSize = ''; art.textContent = 'เลือกแหล่งที่มาด้านบนเพื่อเริ่ม';
+    seekWrap.classList.remove('show');
+    ['btnSave', 'btnSaveTxt', 'btnCopy', 'btnFullscreen', 'btnSnap', 'btnPlay'].forEach(id => $(id).disabled = true);
+    setStatus('');
+  }
+
+  // ---------- camera ----------
   async function startCamera() {
     stopCamera(false);
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -188,16 +284,19 @@
     }
     try {
       setStatus('กำลังขออนุญาตใช้กล้อง…');
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 } },
+      camStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: camFacing, width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false
       });
-      video.srcObject = stream;
+      video.srcObject = camStream;
       await video.play();
-      $('mirror').checked = (facing === 'user');
+      $('mirror').checked = (camFacing === 'user');
       $('btnStart').textContent = 'ปิดกล้อง';
-      ['btnFlip', 'btnSave', 'btnCopy'].forEach(id => $(id).disabled = false);
+      $('btnFlipCam').disabled = false;
+      $('btnSnap').disabled = false;
+      ['btnSave', 'btnSaveTxt', 'btnCopy', 'btnFullscreen'].forEach(id => $(id).disabled = false);
       art.classList.remove('empty');
+      source = 'camera'; frozen = false;
       setStatus('กำลังทำงาน — ลองปรับความเข้มถ้าภาพจางหรือดำเกินไป');
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(frame);
@@ -211,65 +310,152 @@
       setStatus(map[err.name] || ('เปิดกล้องไม่สำเร็จ: ' + err.message), true);
     }
   }
-
   function stopCamera(resetUI = true) {
-    cancelAnimationFrame(raf);
-    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
     video.srcObject = null;
+    if (source === 'camera') { cancelAnimationFrame(raf); source = 'none'; }
     if (resetUI) {
       $('btnStart').textContent = 'เปิดกล้อง';
-      ['btnFlip', 'btnSave', 'btnCopy'].forEach(id => $(id).disabled = true);
-      art.className = 'empty';
-      art.style.fontSize = '';
-      art.textContent = 'กด "เปิดกล้อง" เพื่อเริ่ม';
-      lastText = '';
-      setStatus('');
+      $('btnFlipCam').disabled = true; $('btnSnap').disabled = true;
+      resetStage();
     }
+  }
+  $('btnStart').addEventListener('click', () => camStream ? stopCamera() : startCamera());
+  $('btnFlipCam').addEventListener('click', () => { camFacing = camFacing === 'user' ? 'environment' : 'user'; startCamera(); });
+  $('btnSnap').addEventListener('click', () => {
+    if (source !== 'camera') return;
+    frozen = !frozen;
+    $('btnSnap').textContent = frozen ? 'เล่นต่อ' : 'ถ่ายภาพนิ่ง';
+    setStatus(frozen ? 'หยุดภาพนิ่งแล้ว — กด “เล่นต่อ” เพื่อกลับไปสด' : '');
+  });
+
+  // ---------- upload ----------
+  drop.addEventListener('click', () => fileInput.click());
+  drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+  fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+  ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]));
+
+  function handleFile(f) {
+    if (!f) return;
+    cancelAnimationFrame(raf);
+    setStatus('');
+    const url = URL.createObjectURL(f);
+    if (f.type.startsWith('image/')) {
+      img.onload = () => {
+        dropLabel.textContent = f.name;
+        art.classList.remove('empty');
+        source = 'image'; frozen = false;
+        seekWrap.classList.remove('show'); $('btnPlay').disabled = true;
+        ['btnSave', 'btnSaveTxt', 'btnCopy', 'btnFullscreen'].forEach(id => $(id).disabled = false);
+        renderStatic();
+      };
+      img.onerror = () => setStatus('เปิดไฟล์รูปภาพไม่สำเร็จ', true);
+      img.src = url;
+    } else if (f.type.startsWith('video/')) {
+      video.srcObject = null;
+      video.src = url;
+      video.onloadedmetadata = () => {
+        dropLabel.textContent = f.name;
+        art.classList.remove('empty');
+        source = 'video'; frozen = false;
+        $('btnPlay').disabled = false;
+        ['btnSave', 'btnSaveTxt', 'btnCopy', 'btnFullscreen'].forEach(id => $(id).disabled = false);
+        seekWrap.classList.add('show');
+        seek.max = video.duration || 0;
+        video.play().catch(() => {});
+        $('btnPlay').textContent = 'หยุดชั่วคราว';
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(frame);
+      };
+      video.onerror = () => setStatus('เปิดไฟล์วิดีโอไม่สำเร็จ (อาจเป็นชนิดไฟล์ที่เบราว์เซอร์นี้ไม่รองรับ)', true);
+      let seeking = false;
+      video.ontimeupdate = () => { if (!seeking) { seek.value = video.currentTime; oSeek.textContent = fmtTime(video.currentTime); } };
+      video.onended = () => $('btnPlay').textContent = 'เล่น';
+      seek.oninput = () => { seeking = true; oSeek.textContent = fmtTime(+seek.value); };
+      seek.onchange = () => { video.currentTime = +seek.value; seeking = false; };
+    } else {
+      setStatus('รองรับเฉพาะไฟล์รูปภาพหรือวิดีโอ', true);
+    }
+  }
+  $('btnPlay').addEventListener('click', () => {
+    if (source !== 'video') return;
+    if (video.paused) { video.play(); $('btnPlay').textContent = 'หยุดชั่วคราว'; }
+    else { video.pause(); $('btnPlay').textContent = 'เล่น'; }
+  });
+
+  // ---------- rendering ----------
+  function currentRamp() { return RAMPS[$('charset').value] || RAMPS.classic; }
+
+  function computeGrid(sourceEl, sw, sh) {
+    const cols = +$('cols').value;
+    const rows = Math.max(1, Math.round(cols * (sh / sw) * R));
+    if (work.width !== cols || work.height !== rows) { work.width = cols; work.height = rows; }
+    ctx.save();
+    if ($('mirror').checked) { ctx.translate(cols, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(sourceEl, 0, 0, cols, rows);
+    ctx.restore();
+    return { cols, rows, data: ctx.getImageData(0, 0, cols, rows).data };
+  }
+
+  function renderFrom(sourceEl, sw, sh) {
+    const { cols, rows, data: d } = computeGrid(sourceEl, sw, sh);
+    const con = +$('con').value, bri = +$('bri').value;
+    const flip = $('invert').checked !== $('dark').checked;
+    const ramp = currentRamp();
+    const n = ramp.length - 1;
+    const colorMode = $('colorMode').checked;
+
+    let plain = '';
+    let html = colorMode ? '' : null;
+
+    for (let y = 0; y < rows; y++) {
+      let line = '';
+      let htmlLine = colorMode ? '' : null;
+      for (let x = 0; x < cols; x++) {
+        const i = (y * cols + x) * 4;
+        const r0 = d[i], g0 = d[i + 1], b0 = d[i + 2];
+        let v = (0.299 * r0 + 0.587 * g0 + 0.114 * b0) / 255;
+        v = (v - 0.5) * con + 0.5 + bri;
+        v = v < 0 ? 0 : v > 1 ? 1 : v;
+        if (flip) v = 1 - v;
+        const ch = ramp[Math.round(v * n)];
+        line += ch;
+        if (colorMode) {
+          const cr = Math.min(255, Math.max(0, Math.round((r0 - 128) * con + 128 + bri * 255)));
+          const cg = Math.min(255, Math.max(0, Math.round((g0 - 128) * con + 128 + bri * 255)));
+          const cb = Math.min(255, Math.max(0, Math.round((b0 - 128) * con + 128 + bri * 255)));
+          htmlLine += `<span style="color:rgb(${cr},${cg},${cb})">${ch === ' ' ? '&nbsp;' : ch}</span>`;
+        }
+      }
+      plain += line + (y < rows - 1 ? '\n' : '');
+      if (colorMode) html += htmlLine + (y < rows - 1 ? '\n' : '');
+    }
+
+    lastText = plain; lastCols = cols;
+    const W = stage.clientWidth, H = window.innerHeight * 0.72;
+    const fs = Math.max(3, Math.min(W / (cols * R), H / rows));
+    art.style.fontSize = fs.toFixed(2) + 'px';
+    if (colorMode) art.innerHTML = html; else art.textContent = plain;
+  }
+
+  function renderStatic() {
+    if (source === 'image' && img.naturalWidth) renderFrom(img, img.naturalWidth, img.naturalHeight);
   }
 
   function frame(t) {
     raf = requestAnimationFrame(frame);
-    if (t - lastT < 50) return;          // ~20 เฟรม/วินาที
+    if (source !== 'camera' && source !== 'video') return;
+    if (frozen) return;
+    if (t - lastT < 50) return;
     lastT = t;
     const vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) return;
-
-    const cols = +$('cols').value;
-    const rows = Math.max(1, Math.round(cols * (vh / vw) * R));
-    if (work.width !== cols || work.height !== rows) { work.width = cols; work.height = rows; }
-
-    ctx.save();
-    if ($('mirror').checked) { ctx.translate(cols, 0); ctx.scale(-1, 1); }
-    ctx.drawImage(video, 0, 0, cols, rows);
-    ctx.restore();
-
-    const d = ctx.getImageData(0, 0, cols, rows).data;
-    const con = +$('con').value, bri = +$('bri').value;
-    const flip = $('invert').checked !== $('dark').checked;  // พื้นดำ → ส่วนสว่างใช้ตัวอักษรหนาแน่น
-    const n = RAMP.length - 1;
-
-    let text = '';
-    for (let y = 0; y < rows; y++) {
-      let line = '';
-      for (let x = 0; x < cols; x++) {
-        const i = (y * cols + x) * 4;
-        let v = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
-        v = (v - 0.5) * con + 0.5 + bri;
-        v = v < 0 ? 0 : v > 1 ? 1 : v;
-        if (flip) v = 1 - v;
-        line += RAMP[Math.round(v * n)];
-      }
-      text += line + (y < rows - 1 ? '\n' : '');
-    }
-    lastText = text; lastCols = cols;
-
-    // ปรับขนาดฟอนต์ให้พอดีกรอบ
-    const W = stage.clientWidth, H = window.innerHeight * 0.72;
-    const fs = Math.max(3, Math.min(W / (cols * R), H / rows));
-    art.style.fontSize = fs.toFixed(2) + 'px';
-    art.textContent = text;
+    renderFrom(video, vw, vh);
   }
 
+  // ---------- export ----------
   function savePng() {
     if (!lastText) return;
     const lines = lastText.split('\n');
@@ -287,30 +473,10 @@
     lines.forEach((ln, i) => g.fillText(ln, pad, pad + i * fs));
     const a = document.createElement('a');
     a.href = c.toDataURL('image/png');
-    a.download = 'ascii-camera-' + Date.now() + '.png';
+    a.download = 'ascii-' + Date.now() + '.png';
     a.click();
   }
-
-  async function copyText() {
+  function saveTxt() {
     if (!lastText) return;
-    try {
-      await navigator.clipboard.writeText(lastText);
-      setStatus('คัดลอกข้อความแล้ว');
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = lastText; document.body.appendChild(ta); ta.select();
-      try { document.execCommand('copy'); setStatus('คัดลอกข้อความแล้ว'); }
-      catch { setStatus('คัดลอกไม่สำเร็จ', true); }
-      ta.remove();
-    }
-  }
-
-  $('btnStart').addEventListener('click', () => stream ? stopCamera() : startCamera());
-  $('btnFlip').addEventListener('click', () => { facing = facing === 'user' ? 'environment' : 'user'; startCamera(); });
-  $('btnSave').addEventListener('click', savePng);
-  $('btnCopy').addEventListener('click', copyText);
-  bindOutputs();
-})();
-</script>
-</body>
-</html>
+    const blob = new Blob([lastText], { type: 'text/plain;charset=utf-8' });
+    const a = document.crea
