@@ -60,9 +60,7 @@
     width: 100%;
     display: flex; justify-content: center; align-items: center;
     min-height: 260px;
-    position: relative;
   }
-  #stage:fullscreen { background: var(--paper); }
   #art {
     margin: 0;
     white-space: pre;
@@ -86,6 +84,7 @@
   button:hover { background: var(--ink); color: var(--paper); }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.primary:hover { filter: brightness(1.1); background: var(--accent); }
+  button.recording { background: #c62828; border-color: #c62828; color: #fff; }
   button:disabled { opacity: .4; cursor: not-allowed; }
   :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
@@ -139,6 +138,7 @@
     </div>
     <div class="row">
       <button id="btnPlay" disabled>เล่น/หยุดชั่วคราว</button>
+      <button id="btnDownloadOriginal" disabled>ดาวน์โหลดวิดีโอต้นฉบับ</button>
     </div>
     <div id="seekWrap" class="sliders">
       <label class="slider">
@@ -152,9 +152,12 @@
     <pre id="art" class="empty">เลือกแหล่งที่มาด้านบนเพื่อเริ่ม</pre>
   </div>
 
+  <div class="row">
+    <button id="btnRecord" disabled>เริ่มบันทึกวิดีโอ ASCII</button>
+  </div>
+
   <section class="panel" aria-label="ตัวควบคุมทั่วไป">
     <div class="row">
-      <button id="btnFullscreen" disabled>ดูเต็มจอ</button>
       <button id="btnSave" disabled>บันทึกเป็นรูป PNG</button>
       <button id="btnSaveTxt" disabled>บันทึกเป็นข้อความ .txt</button>
       <button id="btnCopy" disabled>คัดลอกข้อความ</button>
@@ -201,6 +204,7 @@
 <img id="img" class="srcimg" alt="">
 <video id="video" playsinline muted></video>
 <canvas id="work" class="hidden"></canvas>
+<canvas id="rec" class="hidden"></canvas>
 
 <script>
 (() => {
@@ -210,7 +214,9 @@
   const drop = $('drop'), fileInput = $('file'), dropLabel = $('dropLabel');
   const img = $('img'), video = $('video'), art = $('art'), stage = $('stage'), status = $('status');
   const work = $('work'), ctx = work.getContext('2d', { willReadFrequently: true });
+  const rec = $('rec'), rctx = rec.getContext('2d');
   const seekWrap = $('seekWrap'), seek = $('seek'), oSeek = $('oSeek');
+  const btnRecord = $('btnRecord');
 
   const RAMPS = {
     classic: "#@8&XeQ2x7?1/!;:,. ",
@@ -218,11 +224,16 @@
     dots: "●◉◍◌·. "
   };
   const FONT = "'DejaVu Sans Mono','Consolas','Menlo','Courier New',monospace";
+  const REC_CELL = 10; // px per character cell in the recorded/exported video
 
   let camStream = null, camFacing = 'user';
   let source = 'none';     // 'camera' | 'video' | 'image' | 'none'
   let raf = 0, lastT = 0;
   let lastText = '', lastCols = 0, frozen = false;
+  let lastRows = [];       // rows of {ch, color} for the current frame, used by the recorder
+
+  let mediaRecorder = null, recChunks = [], recording = false;
+  let currentVideoUrl = null, currentVideoName = 'video';
 
   const R = (() => {
     const s = document.createElement('span');
@@ -252,6 +263,7 @@
   // ---------- tabs ----------
   function switchTab(target) {
     stopCamera(false);
+    stopRecording();
     if (target === 'camera') {
       tabCamera.classList.add('active'); tabCamera.setAttribute('aria-selected', 'true');
       tabUpload.classList.remove('active'); tabUpload.setAttribute('aria-selected', 'false');
@@ -268,10 +280,10 @@
 
   function resetStage() {
     cancelAnimationFrame(raf);
-    source = 'none'; frozen = false; lastText = '';
+    source = 'none'; frozen = false; lastText = ''; lastRows = []; currentVideoUrl = null;
     art.className = 'empty'; art.style.fontSize = ''; art.textContent = 'เลือกแหล่งที่มาด้านบนเพื่อเริ่ม';
     seekWrap.classList.remove('show');
-    ['btnSave', 'btnSaveTxt', 'btnCopy', 'btnFullscreen', 'btnSnap', 'btnPlay'].forEach(id => $(id).disabled = true);
+    ['btnSave', 'btnSaveTxt', 'btnCopy', 'btnSnap', 'btnPlay', 'btnRecord', 'btnDownloadOriginal'].forEach(id => $(id).disabled = true);
     setStatus('');
   }
 
@@ -294,7 +306,7 @@
       $('btnStart').textContent = 'ปิดกล้อง';
       $('btnFlipCam').disabled = false;
       $('btnSnap').disabled = false;
-      ['btnSave', 'btnSaveTxt', 'btnCopy', 'btnFullscreen'].forEach(id => $(id).disabled = false);
+      ['btnSave', 'btnSaveTxt', 'btnCopy', 'btnRecord'].forEach(id => $(id).disabled = false);
       art.classList.remove('empty');
       source = 'camera'; frozen = false;
       setStatus('กำลังทำงาน — ลองปรับความเข้มถ้าภาพจางหรือดำเกินไป');
@@ -340,6 +352,7 @@
   function handleFile(f) {
     if (!f) return;
     cancelAnimationFrame(raf);
+    stopRecording();
     setStatus('');
     const url = URL.createObjectURL(f);
     if (f.type.startsWith('image/')) {
@@ -347,8 +360,8 @@
         dropLabel.textContent = f.name;
         art.classList.remove('empty');
         source = 'image'; frozen = false;
-        seekWrap.classList.remove('show'); $('btnPlay').disabled = true;
-        ['btnSave', 'btnSaveTxt', 'btnCopy', 'btnFullscreen'].forEach(id => $(id).disabled = false);
+        seekWrap.classList.remove('show'); $('btnPlay').disabled = true; $('btnRecord').disabled = true; $('btnDownloadOriginal').disabled = true;
+        ['btnSave', 'btnSaveTxt', 'btnCopy'].forEach(id => $(id).disabled = false);
         renderStatic();
       };
       img.onerror = () => setStatus('เปิดไฟล์รูปภาพไม่สำเร็จ', true);
@@ -356,12 +369,14 @@
     } else if (f.type.startsWith('video/')) {
       video.srcObject = null;
       video.src = url;
+      currentVideoUrl = url;
+      currentVideoName = f.name || ('video-' + Date.now() + '.mp4');
       video.onloadedmetadata = () => {
         dropLabel.textContent = f.name;
         art.classList.remove('empty');
         source = 'video'; frozen = false;
         $('btnPlay').disabled = false;
-        ['btnSave', 'btnSaveTxt', 'btnCopy', 'btnFullscreen'].forEach(id => $(id).disabled = false);
+        ['btnSave', 'btnSaveTxt', 'btnCopy', 'btnRecord', 'btnDownloadOriginal'].forEach(id => $(id).disabled = false);
         seekWrap.classList.add('show');
         seek.max = video.duration || 0;
         video.play().catch(() => {});
@@ -383,6 +398,13 @@
     if (source !== 'video') return;
     if (video.paused) { video.play(); $('btnPlay').textContent = 'หยุดชั่วคราว'; }
     else { video.pause(); $('btnPlay').textContent = 'เล่น'; }
+  });
+  $('btnDownloadOriginal').addEventListener('click', () => {
+    if (!currentVideoUrl) return;
+    const a = document.createElement('a');
+    a.href = currentVideoUrl;
+    a.download = currentVideoName;
+    a.click();
   });
 
   // ---------- rendering ----------
@@ -409,10 +431,12 @@
 
     let plain = '';
     let html = colorMode ? '' : null;
+    const rowsOut = [];
 
     for (let y = 0; y < rows; y++) {
       let line = '';
       let htmlLine = colorMode ? '' : null;
+      const rowCells = [];
       for (let x = 0; x < cols; x++) {
         const i = (y * cols + x) * 4;
         const r0 = d[i], g0 = d[i + 1], b0 = d[i + 2];
@@ -422,22 +446,28 @@
         if (flip) v = 1 - v;
         const ch = ramp[Math.round(v * n)];
         line += ch;
+        let color = null;
         if (colorMode) {
           const cr = Math.min(255, Math.max(0, Math.round((r0 - 128) * con + 128 + bri * 255)));
           const cg = Math.min(255, Math.max(0, Math.round((g0 - 128) * con + 128 + bri * 255)));
           const cb = Math.min(255, Math.max(0, Math.round((b0 - 128) * con + 128 + bri * 255)));
-          htmlLine += `<span style="color:rgb(${cr},${cg},${cb})">${ch === ' ' ? '&nbsp;' : ch}</span>`;
+          color = `rgb(${cr},${cg},${cb})`;
+          htmlLine += `<span style="color:${color}">${ch === ' ' ? '&nbsp;' : ch}</span>`;
         }
+        rowCells.push({ ch, color });
       }
       plain += line + (y < rows - 1 ? '\n' : '');
       if (colorMode) html += htmlLine + (y < rows - 1 ? '\n' : '');
+      rowsOut.push(rowCells);
     }
 
-    lastText = plain; lastCols = cols;
+    lastText = plain; lastCols = cols; lastRows = rowsOut;
     const W = stage.clientWidth, H = window.innerHeight * 0.72;
     const fs = Math.max(3, Math.min(W / (cols * R), H / rows));
     art.style.fontSize = fs.toFixed(2) + 'px';
     if (colorMode) art.innerHTML = html; else art.textContent = plain;
+
+    if (recording) drawRecFrame();
   }
 
   function renderStatic() {
@@ -455,7 +485,78 @@
     renderFrom(video, vw, vh);
   }
 
-  // ---------- export ----------
+  // ---------- recording the ASCII animation as a video file ----------
+  function drawRecFrame() {
+    if (!lastRows.length) return;
+    const cols = lastCols, rows = lastRows.length;
+    const w = cols * REC_CELL, h = rows * REC_CELL;
+    if (rec.width !== w || rec.height !== h) { rec.width = w; rec.height = h; }
+    const cs = getComputedStyle(document.body);
+    const paper = cs.getPropertyValue('--paper').trim() || '#fff';
+    const ink = cs.getPropertyValue('--ink').trim() || '#000';
+    rctx.fillStyle = paper;
+    rctx.fillRect(0, 0, w, h);
+    rctx.font = `${REC_CELL}px ${FONT}`;
+    rctx.textBaseline = 'top';
+    for (let y = 0; y < rows; y++) {
+      const row = lastRows[y];
+      for (let x = 0; x < cols; x++) {
+        const cell = row[x];
+        if (cell.ch === ' ') continue;
+        rctx.fillStyle = cell.color || ink;
+        rctx.fillText(cell.ch, x * REC_CELL, y * REC_CELL);
+      }
+    }
+  }
+
+  function pickMimeType() {
+    const cands = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+    return cands.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+  }
+
+  function startRecording() {
+    if (source !== 'camera' && source !== 'video') return;
+    if (!window.MediaRecorder) { setStatus('เบราว์เซอร์นี้ไม่รองรับการบันทึกวิดีโอ', true); return; }
+    drawRecFrame();
+    const stream = rec.captureStream(20);
+    const mimeType = pickMimeType();
+    try {
+      mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    } catch (e) {
+      setStatus('เริ่มบันทึกไม่สำเร็จ: ' + e.message, true);
+      return;
+    }
+    recChunks = [];
+    mediaRecorder.ondataavailable = e => { if (e.data && e.data.size) recChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      if (!recChunks.length) return;
+      const blob = new Blob(recChunks, { type: mediaRecorder.mimeType || 'video/webm' });
+      const ext = (blob.type.includes('mp4')) ? 'mp4' : 'webm';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'ascii-video-' + Date.now() + '.' + ext;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+    mediaRecorder.start();
+    recording = true;
+    btnRecord.textContent = 'หยุดและดาวน์โหลดวิดีโอ';
+    btnRecord.classList.add('recording');
+    setStatus('กำลังบันทึกวิดีโอ ASCII…');
+  }
+
+  function stopRecording() {
+    if (!recording) return;
+    recording = false;
+    btnRecord.textContent = 'เริ่มบันทึกวิดีโอ ASCII';
+    btnRecord.classList.remove('recording');
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+    setStatus('');
+  }
+
+  btnRecord.addEventListener('click', () => recording ? stopRecording() : startRecording());
+
+  // ---------- export (still image / text) ----------
   function savePng() {
     if (!lastText) return;
     const lines = lastText.split('\n');
@@ -467,10 +568,20 @@
     const cs = getComputedStyle(document.body);
     g.fillStyle = cs.getPropertyValue('--paper').trim() || '#fff';
     g.fillRect(0, 0, c.width, c.height);
-    g.fillStyle = cs.getPropertyValue('--ink').trim() || '#000';
     g.font = `${fs}px ${FONT}`;
     g.textBaseline = 'top';
-    lines.forEach((ln, i) => g.fillText(ln, pad, pad + i * fs));
+    const colorMode = $('colorMode').checked;
+    lines.forEach((ln, y) => {
+      if (colorMode && lastRows[y]) {
+        lastRows[y].forEach((cell, x) => {
+          g.fillStyle = cell.color || (cs.getPropertyValue('--ink').trim() || '#000');
+          g.fillText(cell.ch, pad + x * (fs * R), pad + y * fs);
+        });
+      } else {
+        g.fillStyle = cs.getPropertyValue('--ink').trim() || '#000';
+        g.fillText(ln, pad, pad + y * fs);
+      }
+    });
     const a = document.createElement('a');
     a.href = c.toDataURL('image/png');
     a.download = 'ascii-' + Date.now() + '.png';
@@ -496,15 +607,10 @@
       ta.remove();
     }
   }
-  function toggleFullscreen() {
-    if (!document.fullscreenElement) stage.requestFullscreen?.().catch(() => setStatus('เบราว์เซอร์นี้ไม่รองรับการดูเต็มจอ', true));
-    else document.exitFullscreen?.();
-  }
 
   $('btnSave').addEventListener('click', savePng);
   $('btnSaveTxt').addEventListener('click', saveTxt);
   $('btnCopy').addEventListener('click', copyText);
-  $('btnFullscreen').addEventListener('click', toggleFullscreen);
 
   // spacebar: play/pause current video source
   document.addEventListener('keydown', e => {
